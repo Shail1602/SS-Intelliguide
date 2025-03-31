@@ -8,6 +8,19 @@ import time
 def get_tour_id(name, url):
     return hashlib.md5((name + url).encode()).hexdigest()
 
+def extract_brochure_url(page, tour_url):
+    try:
+        page.goto(tour_url, timeout=60000)
+        page.wait_for_timeout(2000)  # Wait for JS to load
+        links = page.query_selector_all("a[href$='.pdf']")
+        for link in links:
+            href = link.get_attribute("href")
+            if href:
+                return href if href.startswith("http") else f"https://www.aptouring.com{href}"
+    except Exception as e:
+        print(f"⚠️ Could not extract brochure from {tour_url}: {e}")
+    return ""
+
 def scrape_tours():
     tour_sections = [
         "https://www.aptouring.com/en-au/tours/europe",
@@ -25,6 +38,7 @@ def scrape_tours():
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
+        detail_page = browser.new_page()
 
         for section in tour_sections:
             print(f"Scraping {section}...")
@@ -36,7 +50,6 @@ def scrape_tours():
                 continue
 
             cards = page.query_selector_all(".trip-card")
-
             if not cards:
                 print(f"⚠️ No trip cards found after load on {section}")
                 continue
@@ -55,12 +68,15 @@ def scrape_tours():
                     link = link_elem.get_attribute("href")
                     full_link = f"https://www.aptouring.com{link}" if link.startswith("/") else link
 
+                    # Extract brochure PDF URL from tour page
+                    brochure_url = extract_brochure_url(detail_page, full_link)
+
                     all_tours.append({
                         "TOUR_ID": get_tour_id(title, full_link),
                         "TOUR_NAME": title,
                         "DURATION": duration,
                         "URL": full_link,
-                        "BROCHURE_URL": "",
+                        "BROCHURE_URL": brochure_url,
                         "VALIDATED": "No",
                         "SUMMARY": ""
                     })
