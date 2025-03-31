@@ -4,6 +4,7 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 import hashlib
+import time
 
 MODELS = ["mistral-large2", "llama3.1-70b", "llama3.1-8b"]
 st.set_page_config(page_title="SS Intelliguide", layout="wide")
@@ -43,33 +44,38 @@ def get_tour_id(name, url):
     return hashlib.md5((name + url).encode()).hexdigest()
 
 def scrape_and_prepare_data():
-    BASE_URL = "https://www.aptouring.com/en-au/trips"
-    response = requests.get(BASE_URL)
-    soup = BeautifulSoup(response.text, "html.parser")
+    base_url = "https://www.aptouring.com"
+    tour_pages = [
+        "/en-au/tours/europe", "/en-au/tours/australia", "/en-au/tours/new-zealand",
+        "/en-au/tours/asia", "/en-au/tours/africa", "/en-au/tours/south-america",
+        "/en-au/tours/antarctica", "/en-au/tours/north-america"
+    ]
 
-    # Print preview of HTML
-    with st.expander("🔍 HTML Preview (first 3000 characters)"):
-        st.code(soup.prettify()[:3000])
-
-    # Attempt multiple selectors
-    cards = soup.find_all("a", href=True)
     tours = []
+    for path in tour_pages:
+        full_url = base_url + path
+        st.write(f"Scraping: {full_url}")
+        try:
+            response = requests.get(full_url, timeout=10)
+            soup = BeautifulSoup(response.text, "html.parser")
 
-    for card in cards:
-        url = card.get("href")
-        text = card.get_text(strip=True)
-        if url and text and "/en-au/trips/" in url:
-            full_url = "https://www.aptouring.com" + url
-            tour_id = get_tour_id(text, full_url)
-            tours.append({
-                "TOUR_ID": tour_id,
-                "TOUR_NAME": text,
-                "DURATION": "Unknown",
-                "URL": full_url,
-                "BROCHURE_URL": "",
-                "VALIDATED": "No",
-                "SUMMARY": ""
-            })
+            for link in soup.find_all("a", href=True):
+                href = link["href"]
+                text = link.get_text(strip=True)
+                if "/en-au/trips/" in href and text:
+                    full_link = base_url + href
+                    tours.append({
+                        "TOUR_ID": get_tour_id(text, full_link),
+                        "TOUR_NAME": text,
+                        "DURATION": "Unknown",
+                        "URL": full_link,
+                        "BROCHURE_URL": "",
+                        "VALIDATED": "No",
+                        "SUMMARY": ""
+                    })
+            time.sleep(1)  # Be nice to the server
+        except Exception as e:
+            st.error(f"Error scraping {full_url}: {e}")
 
     df = pd.DataFrame(tours).drop_duplicates(subset="TOUR_ID")
     return df
@@ -102,12 +108,12 @@ def load_to_snowflake(df):
 st.subheader("⚙️ Admin Panel")
 if st.button("🔄 Scrape & Load Tour Data"):
     scraped_df = scrape_and_prepare_data()
-    st.write("Scraped Tours Preview", scraped_df.head())
+    st.write("Scraped Tours Preview", scraped_df.head(10))
     if scraped_df.empty:
-        st.warning("⚠️ No tours found. Check scraping logic or HTML structure.")
+        st.warning("⚠️ No tours found. Check HTML structure or URLs.")
     else:
         load_to_snowflake(scraped_df)
-        st.success("Tours successfully scraped and loaded into Snowflake!")
+        st.success("✅ Tours scraped and loaded into Snowflake!")
 
 # Display Data
 df = get_tours()
