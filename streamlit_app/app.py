@@ -46,43 +46,54 @@ def scrape_and_prepare_data():
     BASE_URL = "https://www.aptouring.com/en-au/trips"
     response = requests.get(BASE_URL)
     soup = BeautifulSoup(response.text, "html.parser")
-    cards = soup.select(".trip-card")
+
+    # Print preview of HTML
+    with st.expander("🔍 HTML Preview (first 3000 characters)"):
+        st.code(soup.prettify()[:3000])
+
+    # Attempt multiple selectors
+    cards = soup.find_all("a", href=True)
     tours = []
 
     for card in cards:
-        title = card.select_one(".card-title")
-        duration = card.select_one(".card-duration")
-        link_tag = card.find("a", href=True)
-
-        if title and link_tag:
-            url = "https://www.aptouring.com" + link_tag['href']
-            name = title.text.strip()
+        url = card.get("href")
+        text = card.get_text(strip=True)
+        if url and text and "/en-au/trips/" in url:
+            full_url = "https://www.aptouring.com" + url
+            tour_id = get_tour_id(text, full_url)
             tours.append({
-                "TOUR_ID": get_tour_id(name, url),
-                "TOUR_NAME": name,
-                "DURATION": duration.text.strip() if duration else "N/A",
-                "URL": url,
+                "TOUR_ID": tour_id,
+                "TOUR_NAME": text,
+                "DURATION": "Unknown",
+                "URL": full_url,
                 "BROCHURE_URL": "",
                 "VALIDATED": "No",
                 "SUMMARY": ""
             })
 
-    return pd.DataFrame(tours)
+    df = pd.DataFrame(tours).drop_duplicates(subset="TOUR_ID")
+    return df
 
 def load_to_snowflake(df):
     conn = snowflake.connector.connect(**connection_parameters)
     cursor = conn.cursor()
     for _, row in df.iterrows():
-        cursor.execute("""
-            INSERT INTO TOUR_PRODUCTS (
-                TOUR_ID, TOUR_NAME, DURATION, URL, BROCHURE_URL, VALIDATED, SUMMARY
-            )
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (TOUR_ID) DO NOTHING
-        """, (
-            row["TOUR_ID"], row["TOUR_NAME"], row["DURATION"], row["URL"],
-            row["BROCHURE_URL"], row["VALIDATED"], row["SUMMARY"]
-        ))
+        try:
+            cursor.execute("""
+                INSERT INTO TOUR_PRODUCTS (
+                    TOUR_ID, TOUR_NAME, DURATION, URL, BROCHURE_URL, VALIDATED, SUMMARY
+                )
+                SELECT %s, %s, %s, %s, %s, %s, %s
+                WHERE NOT EXISTS (
+                    SELECT 1 FROM TOUR_PRODUCTS WHERE TOUR_ID = %s
+                )
+            """, (
+                row["TOUR_ID"], row["TOUR_NAME"], row["DURATION"], row["URL"],
+                row["BROCHURE_URL"], row["VALIDATED"], row["SUMMARY"],
+                row["TOUR_ID"]
+            ))
+        except Exception as e:
+            st.error(f"Error inserting row: {e}")
     conn.commit()
     cursor.close()
     conn.close()
@@ -92,8 +103,11 @@ st.subheader("⚙️ Admin Panel")
 if st.button("🔄 Scrape & Load Tour Data"):
     scraped_df = scrape_and_prepare_data()
     st.write("Scraped Tours Preview", scraped_df.head())
-    load_to_snowflake(scraped_df)
-    st.success("Tours successfully scraped and loaded into Snowflake!")
+    if scraped_df.empty:
+        st.warning("⚠️ No tours found. Check scraping logic or HTML structure.")
+    else:
+        load_to_snowflake(scraped_df)
+        st.success("Tours successfully scraped and loaded into Snowflake!")
 
 # Display Data
 df = get_tours()
