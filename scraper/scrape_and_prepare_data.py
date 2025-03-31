@@ -83,4 +83,4 @@ def scrape_tours():
     print(f"✅ Scraped {len(df)} unique tours. Saved to tours_scraped.csv")
 
 if __name__ == "__main__":
-    scrape_tours()
+    scrape_tours() 
