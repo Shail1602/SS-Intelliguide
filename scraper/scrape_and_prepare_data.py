@@ -11,7 +11,7 @@ def get_tour_id(name, url):
 def extract_brochure_url(page, tour_url):
     try:
         page.goto(tour_url, timeout=60000)
-        page.wait_for_timeout(2000)  # Wait for JS to load
+        page.wait_for_timeout(2000)
         links = page.query_selector_all("a[href$='.pdf']")
         for link in links:
             href = link.get_attribute("href")
@@ -44,46 +44,37 @@ def scrape_tours():
             print(f"Scraping {section}...")
             page.goto(section, timeout=60000)
             try:
-                page.wait_for_selector(".trip-card", timeout=10000)
+                page.wait_for_selector("a.card--tour", timeout=10000)
             except TimeoutError:
                 print(f"⚠️ No tour cards found on {section} within timeout.")
                 continue
 
-            cards = page.query_selector_all(".trip-card")
+            cards = page.query_selector_all("a.card--tour")
             if not cards:
-                print(f"⚠️ No trip cards found after load on {section}")
+                print(f"⚠️ No tour cards found after load on {section}")
                 continue
 
             for card in cards:
                 try:
-                    title_elem = card.query_selector(".card-title")
-                    duration_elem = card.query_selector(".card-duration")
-                    link_elem = card.query_selector("a")
-
-                    if not title_elem or not link_elem:
-                        continue
-
-                    title = title_elem.inner_text().strip()
-                    duration = duration_elem.inner_text().strip() if duration_elem else "N/A"
-                    link = link_elem.get_attribute("href")
-                    full_link = f"https://www.aptouring.com{link}" if link.startswith("/") else link
-
-                    # Extract brochure PDF URL from tour page
-                    brochure_url = extract_brochure_url(detail_page, full_link)
+                    url_suffix = card.get_attribute("href")
+                    tour_url = f"https://www.aptouring.com{url_suffix}"
+                    title_elem = card.query_selector("h3.card--tour__title")
+                    title = title_elem.inner_text().strip() if title_elem else "Unknown"
+                    brochure_url = extract_brochure_url(detail_page, tour_url)
 
                     all_tours.append({
-                        "TOUR_ID": get_tour_id(title, full_link),
+                        "TOUR_ID": get_tour_id(title, tour_url),
                         "TOUR_NAME": title,
-                        "DURATION": duration,
-                        "URL": full_link,
+                        "DURATION": "N/A",
+                        "URL": tour_url,
                         "BROCHURE_URL": brochure_url,
                         "VALIDATED": "No",
                         "SUMMARY": ""
                     })
                 except Exception as e:
-                    print(f"Error parsing card: {e}")
+                    print(f"Error parsing tour: {e}")
 
-            time.sleep(2)
+            time.sleep(1)
 
         browser.close()
 
