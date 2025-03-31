@@ -2,7 +2,7 @@
 
 import hashlib
 import pandas as pd
-from playwright.sync_api import sync_playwright
+from playwright.sync_api import sync_playwright, TimeoutError
 import time
 
 def get_tour_id(name, url):
@@ -29,16 +29,32 @@ def scrape_tours():
         for section in tour_sections:
             print(f"Scraping {section}...")
             page.goto(section, timeout=60000)
-            page.wait_for_timeout(5000)
+            try:
+                page.wait_for_selector(".trip-card", timeout=10000)
+            except TimeoutError:
+                print(f"⚠️ No tour cards found on {section} within timeout.")
+                continue
 
             cards = page.query_selector_all(".trip-card")
 
+            if not cards:
+                print(f"⚠️ No trip cards found after load on {section}")
+                continue
+
             for card in cards:
                 try:
-                    title = card.query_selector(".card-title").inner_text()
-                    duration = card.query_selector(".card-duration").inner_text()
-                    link = card.query_selector("a").get_attribute("href")
+                    title_elem = card.query_selector(".card-title")
+                    duration_elem = card.query_selector(".card-duration")
+                    link_elem = card.query_selector("a")
+
+                    if not title_elem or not link_elem:
+                        continue
+
+                    title = title_elem.inner_text().strip()
+                    duration = duration_elem.inner_text().strip() if duration_elem else "N/A"
+                    link = link_elem.get_attribute("href")
                     full_link = f"https://www.aptouring.com{link}" if link.startswith("/") else link
+
                     all_tours.append({
                         "TOUR_ID": get_tour_id(title, full_link),
                         "TOUR_NAME": title,
@@ -49,7 +65,7 @@ def scrape_tours():
                         "SUMMARY": ""
                     })
                 except Exception as e:
-                    print("Error:", e)
+                    print(f"Error parsing card: {e}")
 
             time.sleep(2)
 
