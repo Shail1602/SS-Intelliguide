@@ -21,6 +21,14 @@ def extract_brochure_url(page, tour_url):
         print(f"⚠️ Could not extract brochure from {tour_url}: {e}")
     return ""
 
+def scroll_to_bottom(page):
+    page.evaluate("""
+        () => {
+            window.scrollTo(0, document.body.scrollHeight);
+        }
+    """)
+    page.wait_for_timeout(3000)
+
 def scrape_tours():
     tour_sections = [
         "https://www.aptouring.com/en-au/tours/europe",
@@ -43,6 +51,8 @@ def scrape_tours():
         for section in tour_sections:
             print(f"Scraping {section}...")
             page.goto(section, timeout=60000)
+            scroll_to_bottom(page)
+
             try:
                 page.wait_for_selector("a.card--tour", timeout=10000)
             except TimeoutError:
@@ -83,4 +93,4 @@ def scrape_tours():
     print(f"✅ Scraped {len(df)} unique tours. Saved to tours_scraped.csv")
 
 if __name__ == "__main__":
-    scrape_tours() 
+    scrape_tours()
